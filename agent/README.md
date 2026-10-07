@@ -2,7 +2,8 @@
 
 使用 Python 3.10+ 和 psutil 读取本机指标。主要面向 Ubuntu Linux，同时支持 Windows 本地测试。
 Ubuntu 22.04 / 24.04 自带的 Python 版本满足要求（仍需环境已提供 pip 和 venv）。
-只需普通用户权限，不修改系统配置、不执行 SSH 或远程命令、不发送监控数据。
+只需普通用户权限，不修改系统配置、不执行 SSH 或远程命令。支持 CLI 和本地 HTTP API，
+不会主动向外部服务上报监控数据。
 现有 Dashboard 仍然使用模拟数据，这一版尚未将 Agent 与网页连接。
 
 ## 文件说明
@@ -10,7 +11,10 @@ Ubuntu 22.04 / 24.04 自带的 Python 版本满足要求（仍需环境已提供
 | 文件 | 作用 |
 | --- | --- |
 | `monitor.py` | 指标采集、网络速率计算、命令行参数和定时循环 |
-| `requirements.txt` | 唯一第三方依赖 psutil 的版本范围 |
+| `api.py` | FastAPI HTTP 接口和仅监听本机的 Uvicorn 启动入口 |
+| `requirements.txt` | 运行依赖：psutil、FastAPI、Uvicorn |
+| `requirements-test.txt` | 运行依赖及 TestClient 所需的 httpx，测试继续使用 unittest |
+| `test_api.py` | API 输出、健康检查、异常恢复、网络基线及默认监听地址测试 |
 | `test_monitor.py` | 标准库 unittest 测试，覆盖速率、异常恢复、参数和退出 |
 | `.gitignore` | 忽略虚拟环境及 Python 缓存 |
 
@@ -38,7 +42,7 @@ python -m venv agent/.venv
 & ./agent/.venv/Scripts/python.exe agent/monitor.py
 ```
 
-安装只在项目虚拟环境中添加 psutil，不需要管理员权限。
+安装只在项目虚拟环境中添加依赖，不需要管理员权限。
 首次启动先等待 1 秒建立网络基线，CPU 每轮单独采样 0.2 秒。
 默认间隔为 30 秒，可用 `--interval` 指定任意有限正数（支持小数）。
 间隔以两轮采集开始时间为准；如果采集耗时超过间隔，则下一轮立即开始，实际间隔会变长。
@@ -112,21 +116,25 @@ Linux 磁盘使用率考虑普通用户不可用的保留空间，因此也可�
 
 ### 自动测试
 
-在项目根目录执行，测试不需要真实服务器或网络连接：
+在项目根目录执行。TestClient 测试不监听真实端口，无需远程服务器：
 
 ```powershell
+& ./agent/.venv/Scripts/python.exe -m pip install -r agent/requirements-test.txt
 & ./agent/.venv/Scripts/python.exe -m unittest discover -s agent -p "test_*.py" -v
 ```
 
 Linux 对应命令：
 
 ```bash
+./agent/.venv/bin/python -m pip install -r agent/requirements-test.txt
 ./agent/.venv/bin/python -m unittest discover -s agent -p 'test_*.py' -v
 ```
 
 测试使用模拟指标验证：实际时间的速率计算、新接口、接口消失、计数重置、零时间差、
 网络失败后的恢复、单项异常隔离、输出 JSON、参数校验和 Ctrl+C 优雅退出。
-不安装 psutil 时，也可以用系统 Python 运行上述单元测试；这只验证逻辑，不验证真实采集。
+只验证旧 CLI 逻辑且未安装依赖时，可以运行 `python -m unittest discover -s agent -p 'test_monitor.py' -v`。
+完整测试需先安装 `requirements-test.txt`。API 测试还验证健康检查不触发采集、接口输出保持原结构、
+单项异常与恢复、连续请求的网络基线和默认绑定地址。
 
 ### Windows 真实采集检查
 
@@ -153,4 +161,73 @@ $sample.system
 & ./agent/.venv/Scripts/python.exe agent/monitor.py --once | Set-Content -Encoding utf8 sample.jsonl
 ```
 
-参考：[psutil 官方文档](https://psutil.readthedocs.io/stable/)。
+## 本地 HTTP API
+
+### Windows 启动和调用
+
+在项目根目录的 PowerShell 终端运行：
+
+```powershell
+& ./agent/.venv/Scripts/python.exe -m pip install -r agent/requirements.txt
+& ./agent/.venv/Scripts/python.exe agent/api.py
+```
+
+服务固定默认监听 `127.0.0.1:8000`，按 Ctrl+C 停止。另开一个 PowerShell 终端调用：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/api/status | ConvertTo-Json -Depth 10
+```
+
+也可以用浏览器打开 `http://127.0.0.1:8000/api/status` 查看 JSON，
+打开 `http://127.0.0.1:8000/docs` 查看交互式接口文档。
+
+### Ubuntu / Linux 启动和调用
+
+```bash
+cd /path/to/vibe-coding-learning
+./agent/.venv/bin/python -m pip install -r agent/requirements.txt
+./agent/.venv/bin/python agent/api.py
+```
+
+另开本机终端调用（如果已有 curl）：
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/status
+```
+
+没有 curl 时可使用 Python 标准库：
+
+```bash
+./agent/.venv/bin/python -c "from urllib.request import urlopen; print(urlopen('http://127.0.0.1:8000/api/status').read().decode())"
+```
+
+也支持从项目根目录直接使用 Uvicorn，显式指定本机地址及单进程：
+
+```bash
+./agent/.venv/bin/python -m uvicorn agent.api:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+### 接口行为
+
+| 路径 | 返回 |
+| --- | --- |
+| `GET /health` | HTTP 200，`{"status":"ok"}`，仅表示 HTTP 服务存活 |
+| `GET /api/status` | HTTP 200，包含 `timestamp`、`errors`、`cpu`、`memory`、`disk`、`network`、`system`，结构与 CLI 相同 |
+
+`/api/status` 每次请求实时调用现有 `Collector.collect()`，没有后台 30 秒采集任务。
+CPU 采样约耗时 0.2 秒，网络速率为两次成功网络读取之间的平均值。
+服务启动时建立网络基线；新接口或预采样失败时，首个有效读取的速率可能为 `null`。
+采集器在同一进程内复用，锁保护并发请求的基线，采集请求串行执行；健康检查独立响应。
+使用单进程即可，不需要多 worker。每次服务重启都会重建基线。
+指标失败时对应字段为 `null`，`errors` 含错误说明，并记录日志；其他指标继续返回，下一次请求重试。
+因此 `/health` 正常不代表每个指标都正常，请结合 `/api/status.errors` 检查。
+
+CLI 的 `--once`、`--interval` 和 JSON Lines 输出保持原行为。
+这版不提供跨域配置或鉴权，不修改 Dashboard，也不配置 systemd、nginx 或防火墙。
+所有启动示例仅监听本机，不开放公网。
+
+参考：[psutil 官方文档](https://psutil.readthedocs.io/stable/)、
+[FastAPI 测试文档](https://fastapi.tiangolo.com/tutorial/testing/)、
+[Uvicorn 设置文档](https://www.uvicorn.org/settings/)。
