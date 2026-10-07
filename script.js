@@ -1,57 +1,80 @@
-// 模拟服务器数据：可像 Java 对象一样理解每个对象的字段。
-// 所有操作仅在浏览器内执行，不发送网络请求。
-const servers = [
-  { name: "Web-Server-01", ip: "192.168.1.101", online: true, role: "应用服务 / WEB", cpu: 36, memory: 58, disk: 42 },
-  { name: "Database-02", ip: "192.168.1.102", online: true, role: "数据库节点 / DATABASE", cpu: 64, memory: 82, disk: 67 },
-  { name: "Backup-Server-03", ip: "192.168.1.103", online: false, role: "备份节点 / BACKUP", cpu: null, memory: null, disk: null }
-];
+// API 地址集中在 config.js；网络请求失败时清除读数，避免旧值被误认为实时数据。
+const config = window.DASHBOARD_CONFIG || { apiBaseUrl: '', timeoutMs: 10000 };
+const serverList = document.querySelector('#server-list');
+const refreshButton = document.querySelector('#refresh-button');
+let busy = false;
 
-const serverList = document.querySelector("#server-list");
-const serverIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M12 6.5h5M12 17.5h5" stroke-linecap="round"/></svg>';
-
-// 离线节点没有实时读数，显示“暂无数据”，避免把未知误认为 0%。
-function renderResource(label, value, online) {
-  const available = online && value !== null;
-  return `<div class="resource">
-    <div class="resource-label"><span>${label}</span><span class="resource-value">${available ? value + "%" : "暂无数据"}</span></div>
-    ${available ? `<progress class="${value >= 80 ? "high" : ""}" value="${value}" max="100" aria-label="${label}使用率">${value}%</progress>` : '<div class="unavailable" aria-hidden="true"></div>'}
-  </div>`;
+// API 的主机名、接口名和错误信息均按文本转义，不能直接当作 HTML 执行。
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
-
-function needsAttention(server) {
-  return !server.online || [server.cpu, server.memory, server.disk].some(value => value >= 80);
+function percent(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
-
-function renderDashboard() {
-  // HTML 来自上面的固定本地数据；如接入外部输入，应改用 textContent 安全写入。
-  serverList.innerHTML = servers.map(server => `<article class="server-card">
-    <div class="server-main">
-      <div class="server-top"><div class="server-icon">${serverIcon}</div><span class="status ${server.online ? "" : "offline"}"><span class="dot"></span>${server.online ? "在线" : "离线"}</span></div>
-      <h3 class="server-name">${server.name}</h3><p class="server-ip">${server.ip}</p><p class="server-role">${server.role}</p>
-      ${renderResource("CPU", server.cpu, server.online)}
-      ${renderResource("内存", server.memory, server.online)}
-      ${renderResource("磁盘", server.disk, server.online)}
-    </div>
-    <div class="server-footer"><span>模拟节点</span><span class="${needsAttention(server) ? "alert" : ""}">${!server.online ? "节点离线 · 等待恢复" : needsAttention(server) ? "资源使用率偏高" : "运行状态正常"}</span></div>
-  </article>`).join("");
-
-  const onlineServers = servers.filter(server => server.online);
-  const averageCpu = onlineServers.length ? Math.round(onlineServers.reduce((total, server) => total + server.cpu, 0) / onlineServers.length) : null;
-  document.querySelector("#online-count").innerHTML = `${String(onlineServers.length).padStart(2, "0")}<small>台</small>`;
-  document.querySelector("#availability").textContent = `可用率 ${(onlineServers.length / servers.length * 100).toFixed(1)}%`;
-  document.querySelector("#average-cpu").innerHTML = averageCpu === null ? "—" : `${averageCpu}<small>%</small>`;
-  document.querySelector("#attention-count").innerHTML = `${String(servers.filter(needsAttention).length).padStart(2, "0")}<small>台</small>`;
-  document.querySelector("#updated-at").textContent = `最近更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+function quantity(value, rate = false) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '暂无数据';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}${rate ? '/s' : ''}`;
 }
-
-// 点击刷新时小幅改变在线节点的模拟值，限制在 0～100 之间。
-document.querySelector("#refresh-button").addEventListener("click", () => {
-  servers.filter(server => server.online).forEach(server => {
-    ["cpu", "memory", "disk"].forEach(resource => {
-      server[resource] = Math.max(0, Math.min(100, server[resource] + Math.floor(Math.random() * 15) - 7));
-    });
-  });
-  renderDashboard();
-});
-
-renderDashboard();
+function resource(label, value) {
+  value = percent(value);
+  return `<div class="resource"><div class="resource-label"><span>${label}</span><span class="resource-value">${value === null ? '暂无数据' : value + '%'}</span></div>${value === null ? '<div class="unavailable"></div>' : `<progress class="${value >= 80 ? 'high' : ''}" value="${value}" max="100" aria-label="${label}使用率">${value}%</progress>`}</div>`;
+}
+function render(data, connected = false) {
+  const cpu = percent(data?.cpu?.usage_percent);
+  const memory = percent(data?.memory?.usage_percent);
+  const disk = percent(data?.disk?.usage_percent);
+  const errors = Object.entries(data?.errors || {});
+  const attention = !connected || errors.length > 0 || [cpu, memory, disk].some(value => value !== null && value >= 80);
+  document.querySelector('#online-count').innerHTML = `${connected ? '01' : '00'}<small>台</small>`;
+  document.querySelector('#availability').textContent = connected ? 'Agent API 可达' : '等待 Agent 响应';
+  document.querySelector('#average-cpu').innerHTML = cpu === null ? '—' : `${cpu}<small>%</small>`;
+  document.querySelector('#attention-count').innerHTML = `${attention ? '01' : '00'}<small>台</small>`;
+  const interfaces = Object.entries(data?.network?.interfaces || {});
+  serverList.innerHTML = `<article class="server-card"><div class="server-main">
+    <div class="server-top"><div class="server-icon" aria-hidden="true">▤</div><span class="status ${connected ? '' : 'offline'}"><span class="dot"></span>${connected ? '在线' : '未连接'}</span></div>
+    <h3 class="server-name">${escapeHtml(data?.system?.hostname || 'Agent 主机')}</h3>
+    <p class="server-ip">${escapeHtml(config.apiBaseUrl || '同源 API')}</p>
+    <p class="server-role">${escapeHtml(data?.system?.os_version || '等待系统信息')}</p>
+    ${resource('CPU', cpu)}${resource('内存', memory)}${resource('磁盘', disk)}
+    <p class="server-role">逻辑核心：${escapeHtml(data?.cpu?.logical_cores ?? '—')}</p>
+    <p class="server-role">内存：${quantity(data?.memory?.used_bytes)} / ${quantity(data?.memory?.total_bytes)}</p>
+    <p class="server-role">磁盘 ${escapeHtml(data?.disk?.path || '')}：${quantity(data?.disk?.used_bytes)} / ${quantity(data?.disk?.total_bytes)}</p>
+    <div class="resource-label"><span>网络接口 · 上传 / 下载</span></div>
+    ${interfaces.length ? interfaces.map(([name, net]) => `<div class="resource"><div class="resource-label"><span>${escapeHtml(name)}</span></div><p class="server-ip">↑ ${quantity(net.upload_bytes_per_second, true)} · ↓ ${quantity(net.download_bytes_per_second, true)}</p><p class="server-role">累计发送 ${quantity(net.bytes_sent)} · 接收 ${quantity(net.bytes_received)}</p></div>`).join('') : '<p class="server-role">暂无网络数据</p>'}
+    </div><div class="server-footer"><span>真实 Agent 数据</span><span class="${attention ? 'alert' : ''}">${!connected ? '等待连接' : errors.length ? '部分采集失败' : attention ? '资源使用率偏高' : '运行状态正常'}</span></div></article>`;
+  document.querySelector('#api-message').textContent = errors.length ? `部分指标采集失败：${errors.map(([name, error]) => `${name}: ${error}`).join('；')}` : connected ? '已连接 Agent。点击刷新获取最新读数；网络速率为两次采集之间的平均值。' : '正在连接 Agent API…';
+  if (connected) {
+    const date = new Date(data.timestamp);
+    document.querySelector('#updated-at').textContent = `最近更新：${Number.isNaN(date.getTime()) ? '未知时间' : date.toLocaleString('zh-CN', { hour12: false })}`;
+  }
+}
+async function refreshStatus() {
+  if (busy) return;
+  busy = true;
+  refreshButton.disabled = true;
+  refreshButton.textContent = '正在刷新…';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs || 10000);
+  try {
+    const response = await fetch(`${config.apiBaseUrl.replace(/\/$/, '')}/api/status`, { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (!data || typeof data !== 'object' || !('cpu' in data) || !('memory' in data) || !('disk' in data) || !('network' in data) || !('errors' in data)) throw new Error('API 返回的数据结构不正确');
+    render(data, true);
+  } catch (error) {
+    render(null);
+    document.querySelector('#api-message').textContent = `API 访问失败：${error.name === 'AbortError' ? '请求超时' : error.message}。请检查 Agent 是否启动、config.js 地址及 API 跨域配置。`;
+    document.querySelector('#updated-at').textContent = '更新失败 · 当前读数不可用';
+  } finally {
+    clearTimeout(timer);
+    busy = false;
+    refreshButton.disabled = false;
+    refreshButton.innerHTML = '<span aria-hidden="true">↻</span> 刷新监控数据';
+  }
+}
+refreshButton.addEventListener('click', refreshStatus);
+render(null);
+refreshStatus();

@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="使用模拟数据的服务器运维 Dashboard">
+  <meta name="description" content="使用 Agent API 的服务器运维 Dashboard">
   <title>NodeOps · 服务器运维面板</title>
   <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
   <script src="script.js" defer></script>
 </head>
 <body>
@@ -13,28 +14,28 @@
     <aside class="sidebar" aria-label="应用信息">
       <a class="brand" href="index.html"><span class="brand-icon">N</span> NodeOps<span class="brand-dot">.</span></a>
       <p class="sidebar-label">工作空间 / WORKSPACE</p>
-      <div class="nav-current"><span aria-hidden="true">▦</span> 服务器概览 <span class="nav-count">03</span></div>
-      <div class="sidebar-bottom"><span class="dot"></span> 本地演示环境<small>原生 HTML · CSS · JavaScript</small></div>
+      <div class="nav-current"><span aria-hidden="true">▦</span> 服务器概览 <span class="nav-count">01</span></div>
+      <div class="sidebar-bottom"><span class="dot"></span> 本地监控环境<small>原生 HTML · CSS · JavaScript</small></div>
     </aside>
     <main>
-      <header class="topbar"><span>工作空间 <span class="separator">/</span> <strong>基础设施</strong></span><span class="demo-badge">DEMO 模拟模式</span></header>
+      <header class="topbar"><span>工作空间 <span class="separator">/</span> <strong>基础设施</strong></span><span class="demo-badge">AGENT 实时数据</span></header>
       <section class="heading">
         <div><p class="eyebrow">INFRASTRUCTURE OVERVIEW</p><h1>服务器概览<span class="title-dot">.</span></h1><p class="subtitle">在一个视图中，掌握你的服务器运行状态。</p></div>
-        <button id="refresh-button" type="button"><span aria-hidden="true">↻</span> 刷新模拟数据</button>
+        <button id="refresh-button" type="button"><span aria-hidden="true">↻</span> 刷新监控数据</button>
       </section>
       <section class="summary-grid" aria-label="服务器统计">
-        <article class="summary-card"><span class="summary-label">服务器总数 <span aria-hidden="true">▤</span></span><div class="summary-value">03<small>台</small></div><p>当前工作空间的全部节点</p></article>
-        <article class="summary-card"><span class="summary-label">在线服务器 <span class="dot"></span></span><div class="summary-value green" id="online-count">02<small>台</small></div><p id="availability">可用率 66.7%</p></article>
+        <article class="summary-card"><span class="summary-label">服务器总数 <span aria-hidden="true">▤</span></span><div class="summary-value">01<small>台</small></div><p>当前工作空间的全部节点</p></article>
+        <article class="summary-card"><span class="summary-label">在线服务器 <span class="dot"></span></span><div class="summary-value green" id="online-count">00<small>台</small></div><p id="availability">等待 Agent 响应</p></article>
         <article class="summary-card"><span class="summary-label">平均 CPU 使用率 <span aria-hidden="true">⌁</span></span><div class="summary-value" id="average-cpu">—</div><p>仅统计在线服务器</p></article>
-        <article class="summary-card"><span class="summary-label">需要关注 <span class="warning-dot"></span></span><div class="summary-value amber" id="attention-count">—</div><p>离线或资源使用率 ≥ 80%</p></article>
+        <article class="summary-card"><span class="summary-label">需要关注 <span class="warning-dot"></span></span><div class="summary-value amber" id="attention-count">—</div><p>未连接、采集失败或资源 ≥ 80%</p></article>
       </section>
       <section class="server-section" aria-labelledby="server-heading">
-        <div class="section-heading"><h2 id="server-heading">服务器节点 <span>03</span></h2><span class="section-caption">PRIVATE NETWORK / 模拟私有网络</span></div>
+        <div class="section-heading"><h2 id="server-heading">服务器节点 <span>01</span></h2><span class="section-caption">LOCAL AGENT / 本机监控</span></div>
         <div class="server-grid" id="server-list"></div>
       </section>
-      <section class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><h2>你的第一个运维工作台</h2><p>这里展示的 IP、状态和资源使用率均为模拟数据。点击刷新，观察在线节点的资源变化。</p></div><span class="notice-tag">LOCAL ONLY</span></section>
-      <footer><span><span class="dot"></span> 数据来自本地模拟</span><span id="updated-at" role="status" aria-live="polite">等待更新</span></footer>
-      <noscript><p>请启用浏览器 JavaScript，以显示模拟服务器数据。</p></noscript>
+      <section class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><h2>你的第一个运维工作台</h2><p id="api-message" role="status" aria-live="polite">正在连接 Agent API…</p></div><span class="notice-tag">LOCAL ONLY</span></section>
+      <footer><span><span class="dot"></span> 数据来自 Agent API</span><span id="updated-at" role="status" aria-live="polite">等待更新</span></footer>
+      <noscript><p>请启用浏览器 JavaScript，以显示服务器监控数据。</p></noscript>
     </main>
   </div>
 </body>

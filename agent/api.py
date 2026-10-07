@@ -1,19 +1,21 @@
-"""本地 HTTP API，复用 monitor.py 的指标采集。"""
-
+"""本地 API：复用现有采集器，允许本机 8080 端口的静态 Dashboard。"""
 from contextlib import asynccontextmanager
 import logging
 from threading import Lock
-
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import uvicorn
+"""本地 HTTP API，复用 monitor.py 的指标采集。"""
+
+
+
 
 # 同时支持 python agent/api.py 和 uvicorn agent.api:app。
 if __package__:
     from . import monitor
 else:
     import monitor
-
-LOGGER = logging.getLogger("agent.api")
 
 
 @asynccontextmanager
