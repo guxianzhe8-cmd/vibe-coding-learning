@@ -1,0 +1,9 @@
+services:
+  server-agent-api:
+    build:
+      context: ./agent
+    container_name: server-agent-api
+    ports:
+      - "8001:8000"
+    restart: always
+
