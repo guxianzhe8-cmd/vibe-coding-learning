@@ -4,12 +4,13 @@ import logging
 from threading import Lock
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+import os
 import uvicorn
 import uvicorn
 """本地 HTTP API，复用 monitor.py 的指标采集。"""
 
 
-
+port = int(os.getenv("CONTAINER_PORT", 8000))
 
 # 同时支持 python agent/api.py 和 uvicorn agent.api:app。
 if __package__:
@@ -53,7 +54,7 @@ def status(request: Request):
 
 
 def main():
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
