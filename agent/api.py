@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import uvicorn
-import uvicorn
 """本地 HTTP API，复用 monitor.py 的指标采集。"""
 
 
